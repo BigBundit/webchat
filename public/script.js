@@ -53,7 +53,7 @@ const TILE = 32;
 const MAP_W = 50;
 const MAP_H = 36;
 const CHAR_SPEED = 2.8;
-const MOVE_THROTTLE = 60;
+const MOVE_THROTTLE = 100;
 const SPEECH_DURATION = 4500;
 const CHAR_H = 48; // character height in world pixels
 
@@ -126,64 +126,81 @@ function isSolid(x, y) {
 }
 
 // ── Tile drawing ──
-function drawTile(type, px, py) {
+function drawTile(c, type, px, py) {
   const T = TILE;
 
-  // Grass base
-  ctx.fillStyle = type === 1 ? '#3d9910' : '#4aad18';
-  ctx.fillRect(px, py, T, T);
+  c.fillStyle = type === 1 ? '#3d9910' : '#4aad18';
+  c.fillRect(px, py, T, T);
 
   if (type === 2) {
-    // Shadow
-    ctx.fillStyle = 'rgba(0,0,0,0.18)';
-    ctx.fillRect(px + 5, py + 22, T - 6, 10);
-    // Trunk
-    ctx.fillStyle = '#6b3a10';
-    ctx.fillRect(px + 12, py + 20, 8, 12);
-    // Leaves layers
-    ctx.fillStyle = '#185a08';
-    ctx.fillRect(px + 3, py + 2, T - 6, 22);
-    ctx.fillStyle = '#228010';
-    ctx.fillRect(px + 6, py + 4, T - 12, 16);
-    ctx.fillStyle = '#32a018';
-    ctx.fillRect(px + 9, py + 6, 12, 9);
-    ctx.fillStyle = '#48c028';
-    ctx.fillRect(px + 11, py + 7, 6, 5);
+    c.fillStyle = 'rgba(0,0,0,0.18)';
+    c.fillRect(px + 5, py + 22, T - 6, 10);
+    c.fillStyle = '#6b3a10';
+    c.fillRect(px + 12, py + 20, 8, 12);
+    c.fillStyle = '#185a08';
+    c.fillRect(px + 3, py + 2, T - 6, 22);
+    c.fillStyle = '#228010';
+    c.fillRect(px + 6, py + 4, T - 12, 16);
+    c.fillStyle = '#32a018';
+    c.fillRect(px + 9, py + 6, 12, 9);
+    c.fillStyle = '#48c028';
+    c.fillRect(px + 11, py + 7, 6, 5);
   } else if (type === 3) {
     const fc = ['#ff6b6b','#ffd93d','#ff9ff3','#74ebd5','#a29bfe'][(px * 3 + py * 7) % 5];
-    ctx.fillStyle = fc;
-    ctx.fillRect(px + 4, py + 7, 4, 4);
-    ctx.fillRect(px + 18, py + 15, 4, 4);
-    ctx.fillRect(px + 24, py + 8, 3, 3);
-    ctx.fillStyle = '#fff9c4';
-    ctx.fillRect(px + 5, py + 8, 2, 2);
-    ctx.fillRect(px + 19, py + 16, 2, 2);
+    c.fillStyle = fc;
+    c.fillRect(px + 4, py + 7, 4, 4);
+    c.fillRect(px + 18, py + 15, 4, 4);
+    c.fillRect(px + 24, py + 8, 3, 3);
+    c.fillStyle = '#fff9c4';
+    c.fillRect(px + 5, py + 8, 2, 2);
+    c.fillRect(px + 19, py + 16, 2, 2);
   } else if (type === 4) {
-    // Water
-    ctx.fillStyle = '#2a8bd1';
-    ctx.fillRect(px, py, T, T);
+    // Water — animated, drawn live each frame
+    c.fillStyle = '#2a8bd1';
+    c.fillRect(px, py, T, T);
     const wave = Math.floor(game.tick / 25) % 2;
-    ctx.fillStyle = 'rgba(255,255,255,0.22)';
-    ctx.fillRect(px + wave * 6, py + 10, 14, 2);
-    ctx.fillRect(px + 16 - wave * 6, py + 22, 10, 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.1)';
-    ctx.fillRect(px + 2, py + 16, 20, 1);
+    c.fillStyle = 'rgba(255,255,255,0.22)';
+    c.fillRect(px + wave * 6, py + 10, 14, 2);
+    c.fillRect(px + 16 - wave * 6, py + 22, 10, 2);
+    c.fillStyle = 'rgba(255,255,255,0.1)';
+    c.fillRect(px + 2, py + 16, 20, 1);
   } else if (type === 5) {
-    // Path / dirt
-    ctx.fillStyle = '#c4a050';
-    ctx.fillRect(px, py, T, T);
-    ctx.fillStyle = '#b09040';
-    ctx.fillRect(px + 1, py + 1, T - 2, 2);
-    ctx.fillRect(px + 1, py + T - 3, T - 2, 2);
-    const pr = seededRng(`${px},${py}`);
-    ctx.fillStyle = '#9a7a30';
+    c.fillStyle = '#c4a050';
+    c.fillRect(px, py, T, T);
+    c.fillStyle = '#b09040';
+    c.fillRect(px + 1, py + 1, T - 2, 2);
+    c.fillRect(px + 1, py + T - 3, T - 2, 2);
+    // Pre-cached pebble positions stored on tile call (static)
+    const pr = seededRng(`${Math.floor(px/T)},${Math.floor(py/T)}`);
+    c.fillStyle = '#9a7a30';
     for (let i = 0; i < 3; i++) {
-      ctx.fillRect(px + 2 + Math.floor(pr() * 28), py + 5 + Math.floor(pr() * 22), 2, 2);
+      c.fillRect(px + 2 + Math.floor(pr() * 28), py + 5 + Math.floor(pr() * 22), 2, 2);
     }
   } else {
-    // Grass detail
-    ctx.fillStyle = 'rgba(0,0,0,0.04)';
-    ctx.fillRect(px, py + T - 4, T, 4);
+    c.fillStyle = 'rgba(0,0,0,0.04)';
+    c.fillRect(px, py + T - 4, T, 4);
+  }
+}
+
+// Pre-render static tiles (everything except water) to offscreen canvas
+let mapCanvas = null;
+function prerenderMap() {
+  mapCanvas = document.createElement('canvas');
+  mapCanvas.width = MAP_W * TILE;
+  mapCanvas.height = MAP_H * TILE;
+  const mc = mapCanvas.getContext('2d');
+  mc.imageSmoothingEnabled = false;
+  for (let ty = 0; ty < MAP_H; ty++) {
+    for (let tx = 0; tx < MAP_W; tx++) {
+      const type = game.map[ty][tx];
+      if (type !== 4) {
+        drawTile(mc, type, tx * TILE, ty * TILE);
+      } else {
+        // water placeholder (drawn live each frame)
+        mc.fillStyle = '#2a8bd1';
+        mc.fillRect(tx * TILE, ty * TILE, TILE, TILE);
+      }
+    }
   }
 }
 
@@ -374,46 +391,40 @@ function getCamera() {
 // ── Game loop ──
 function gameLoop() {
   game.tick++;
-  resizeCanvas();
 
-  // Movement
   const me = game.players.get(game.myId);
   if (me) updateMovement(me);
 
-  // Draw
   renderWorld();
-
   requestAnimationFrame(gameLoop);
 }
 
 function resizeCanvas() {
-  if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
-    canvas.width = canvas.clientWidth || window.innerWidth;
-    canvas.height = canvas.clientHeight || window.innerHeight;
-    ctx.imageSmoothingEnabled = false;
-  }
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  ctx.imageSmoothingEnabled = false;
 }
 
 function renderWorld() {
-  if (!game.map) return;
+  if (!game.map || !mapCanvas) return;
 
   const cam = getCamera();
   const vw = canvas.width;
   const vh = canvas.height;
 
-  // Background
-  ctx.fillStyle = '#4aad18';
-  ctx.fillRect(0, 0, vw, vh);
+  // Draw pre-rendered static map in one call
+  ctx.drawImage(mapCanvas, Math.round(-cam.x), Math.round(-cam.y));
 
-  // Tiles
+  // Draw only animated water tiles on top
   const tx0 = Math.max(0, Math.floor(cam.x / TILE));
   const tx1 = Math.min(MAP_W - 1, Math.ceil((cam.x + vw) / TILE));
   const ty0 = Math.max(0, Math.floor(cam.y / TILE));
   const ty1 = Math.min(MAP_H - 1, Math.ceil((cam.y + vh) / TILE));
-
   for (let ty = ty0; ty <= ty1; ty++) {
     for (let tx = tx0; tx <= tx1; tx++) {
-      drawTile(game.map[ty][tx], tx * TILE - cam.x, ty * TILE - cam.y);
+      if (game.map[ty][tx] === 4) {
+        drawTile(ctx, 4, tx * TILE - cam.x, ty * TILE - cam.y);
+      }
     }
   }
 
@@ -426,17 +437,13 @@ function renderWorld() {
     const sy = p.y - cam.y;
     if (sx < -80 || sx > vw + 80 || sy < -100 || sy > vh + 20) continue;
 
-    const isMe = p.id === game.myId;
-    drawCharacter(sx, sy, p.username, p.dir, p.frame, isMe);
+    drawCharacter(sx, sy, p.username, p.dir, p.frame, p.id === game.myId);
 
-    // Speech bubble
     if (p.speech) {
       const elapsed = now - p.speech.ts;
       if (elapsed < SPEECH_DURATION) {
-        const alpha = elapsed > SPEECH_DURATION - 600
-          ? 1 - (elapsed - (SPEECH_DURATION - 600)) / 600
-          : 1;
-        ctx.globalAlpha = alpha;
+        ctx.globalAlpha = elapsed > SPEECH_DURATION - 600
+          ? 1 - (elapsed - (SPEECH_DURATION - 600)) / 600 : 1;
         drawSpeechBubble(sx, sy, p.speech.text, false);
         ctx.globalAlpha = 1;
       } else {
@@ -523,8 +530,14 @@ function dpadUp(dir) {
 function startGame(room) {
   game.map = generateMap(room);
   resizeCanvas();
+  prerenderMap();
   requestAnimationFrame(gameLoop);
 }
+
+window.addEventListener('resize', () => {
+  resizeCanvas();
+  ctx.imageSmoothingEnabled = false;
+});
 
 // ═══════════════════════════════════════════
 // CHAT LOGIC
@@ -710,6 +723,7 @@ socket.on('room_changed', (room) => {
   typingUsers.clear();
   updateTypingDisplay();
   game.map = generateMap(room);
+  prerenderMap();
   game.players.clear();
   game.myId = socket.id;
 });

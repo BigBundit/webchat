@@ -310,17 +310,17 @@ html, body { height: 100%; font-family: 'Sarabun', sans-serif; background: #0f0f
 .chat-panel {
   position: absolute;
   bottom: 130px; right: 16px;
-  width: 300px;
-  max-height: 280px;
-  background: rgba(10,10,20,0.92);
-  backdrop-filter: blur(14px);
-  border: 1px solid rgba(255,255,255,0.1);
+  width: 340px;
+  max-height: 340px;
+  background: rgba(8,8,18,0.97);
+  backdrop-filter: blur(16px);
+  border: 1px solid rgba(255,255,255,0.14);
   border-radius: 14px;
   display: flex; flex-direction: column;
   overflow: hidden;
   z-index: 20;
   transition: opacity 0.2s, transform 0.2s;
-  box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+  box-shadow: 0 8px 40px rgba(0,0,0,0.7);
 }
 .chat-panel.hidden {
   opacity: 0; transform: translateY(8px); pointer-events: none;
@@ -364,7 +364,7 @@ html, body { height: 100%; font-family: 'Sarabun', sans-serif; background: #0f0f
   padding: 7px 11px; border-radius: 12px;
   font-size: 13px; line-height: 1.5; word-break: break-word; white-space: pre-wrap;
 }
-.msg.theirs .msg-bubble { background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.07); border-bottom-left-radius: 3px; }
+.msg.theirs .msg-bubble { background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.12); border-bottom-left-radius: 3px; color: #f0f2ff; }
 .msg.mine .msg-bubble { background: linear-gradient(135deg, var(--primary), var(--secondary)); color: white; border-bottom-right-radius: 3px; }
 
 .msg-system { align-self: center; display: flex; justify-content: center; width: 100%; padding: 2px 0; }
