@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ChatNow - แชทออนไลน์</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=Sarabun:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <!-- Login Screen -->
+  <div id="login-screen" class="screen active">
+    <div class="login-card">
+      <div class="logo">
+        <div class="logo-icon">
+          <svg viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <circle cx="20" cy="20" r="20" fill="url(#grad)"/>
+            <path d="M10 14h20v12a2 2 0 01-2 2H12a2 2 0 01-2-2V14z" fill="white" opacity="0.9"/>
+            <path d="M10 14l10 7 10-7" stroke="url(#grad2)" stroke-width="2" stroke-linecap="round"/>
+            <circle cx="16" cy="30" r="2" fill="white"/>
+            <defs>
+              <linearGradient id="grad" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#667eea"/>
+                <stop offset="1" stop-color="#764ba2"/>
+              </linearGradient>
+              <linearGradient id="grad2" x1="10" y1="14" x2="30" y2="14" gradientUnits="userSpaceOnUse">
+                <stop stop-color="#667eea"/>
+                <stop offset="1" stop-color="#764ba2"/>
+              </linearGradient>
+            </defs>
+          </svg>
+        </div>
+        <h1>ChatNow</h1>
+        <p>แชทออนไลน์แบบเรียลไทม์</p>
+      </div>
+
+      <form id="login-form">
+        <div class="input-group">
+          <label for="username-input">ชื่อผู้ใช้ของคุณ</label>
+          <div class="input-wrapper">
+            <span class="input-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/>
+                <circle cx="12" cy="7" r="4"/>
+              </svg>
+            </span>
+            <input
+              type="text"
+              id="username-input"
+              placeholder="กรอกชื่อของคุณ..."
+              maxlength="20"
+              autocomplete="off"
+            />
+          </div>
+        </div>
+
+        <div class="input-group">
+          <label>เลือกห้องแชท</label>
+          <div class="room-selector">
+            <label class="room-option active" data-room="general">
+              <input type="radio" name="room" value="general" checked hidden/>
+              <span class="room-icon">#</span>
+              <span class="room-name">ทั่วไป</span>
+            </label>
+            <label class="room-option" data-room="tech">
+              <input type="radio" name="room" value="tech" hidden/>
+              <span class="room-icon">#</span>
+              <span class="room-name">เทคโนโลยี</span>
+            </label>
+            <label class="room-option" data-room="random">
+              <input type="radio" name="room" value="random" hidden/>
+              <span class="room-icon">#</span>
+              <span class="room-name">สุ่ม</span>
+            </label>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-primary" id="join-btn">
+          <span>เข้าร่วมแชท</span>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M5 12h14M12 5l7 7-7 7"/>
+          </svg>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Chat Screen -->
+  <div id="chat-screen" class="screen">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="brand">
+          <span class="brand-dot"></span>
+          ChatNow
+        </div>
+        <button class="sidebar-close" id="sidebar-close">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M18 6L6 18M6 6l12 12"/>
+          </svg>
+        </button>
+      </div>
+
+      <div class="sidebar-section">
+        <h3 class="sidebar-label">ห้องแชท</h3>
+        <div id="room-list" class="room-list">
+          <!-- Rooms injected by JS -->
+        </div>
+      </div>
+
+      <div class="sidebar-section">
+        <h3 class="sidebar-label">ผู้ใช้ในห้อง (<span id="user-count">0</span>)</h3>
+        <div id="user-list" class="user-list">
+          <!-- Users injected by JS -->
+        </div>
+      </div>
+
+      <div class="sidebar-footer">
+        <div class="me-info">
+          <div class="avatar" id="my-avatar">?</div>
+          <div class="me-name" id="my-name">-</div>
+        </div>
+        <button class="btn-logout" id="logout-btn" title="ออกจากห้อง">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/>
+          </svg>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Overlay for mobile -->
+    <div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+    <!-- Main chat area -->
+    <main class="chat-main">
+      <!-- Chat header -->
+      <header class="chat-header">
+        <button class="menu-btn" id="menu-btn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M3 12h18M3 6h18M3 18h18"/>
+          </svg>
+        </button>
+        <div class="chat-header-info">
+          <span class="room-hash">#</span>
+          <h2 id="current-room-name">ทั่วไป</h2>
+        </div>
+        <div class="online-badge">
+          <span class="pulse"></span>
+          <span id="header-user-count">0</span> ออนไลน์
+        </div>
+      </header>
+
+      <!-- Messages area -->
+      <div class="messages-area" id="messages-area">
+        <div class="welcome-msg">
+          <div class="welcome-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+            </svg>
+          </div>
+          <p>ยินดีต้อนรับสู่ห้องแชท เริ่มต้นการสนทนาได้เลย!</p>
+        </div>
+      </div>
+
+      <!-- Typing indicator -->
+      <div class="typing-indicator" id="typing-indicator" style="display:none">
+        <div class="typing-dots">
+          <span></span><span></span><span></span>
+        </div>
+        <span id="typing-text">กำลังพิมพ์...</span>
+      </div>
+
+      <!-- Input area -->
+      <div class="input-area">
+        <div class="input-box">
+          <textarea
+            id="message-input"
+            placeholder="พิมพ์ข้อความ... (Enter ส่ง, Shift+Enter ขึ้นบรรทัดใหม่)"
+            rows="1"
+            maxlength="500"
+          ></textarea>
+          <div class="input-actions">
+            <span class="char-count" id="char-count">0/500</span>
+            <button class="send-btn" id="send-btn" disabled>
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="script.js"></script>
+</body>
+</html>
