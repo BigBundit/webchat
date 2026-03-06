@@ -94,9 +94,12 @@ html, body { height: 100%; font-family: 'Sarabun', sans-serif; background: #0f0f
 
 /* ── Chat Screen (Game) ── */
 #chat-screen {
-  position: relative;
+  position: fixed;
+  inset: 0;
   overflow: hidden;
   flex-direction: column;
+  width: 100vw;
+  height: 100vh;
 }
 
 /* ── Canvas ── */

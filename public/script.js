@@ -542,8 +542,6 @@ loginForm.addEventListener('submit', (e) => {
   myUsername = username;
   currentRoom = room;
 
-  socket.emit('join', { username, room });
-
   loginScreen.classList.remove('active');
   chatScreen.classList.add('active');
 
@@ -556,6 +554,16 @@ loginForm.addEventListener('submit', (e) => {
   if (sidebarNm) sidebarNm.textContent = username;
 
   startGame(room);
+
+  // Add own player immediately so camera works before server responds
+  game.myId = socket.id;
+  game.players.set(socket.id, {
+    id: socket.id, username,
+    x: MAP_W * TILE / 2, y: MAP_H * TILE / 2,
+    dir: 'down', frame: 0, speech: null, typing: false
+  });
+
+  socket.emit('join', { username, room });
 
   setTimeout(() => messageInput.focus(), 300);
 });
@@ -751,21 +759,6 @@ socket.on('player_typing', ({ id, isTyping: it }) => {
   if (p) p.typing = it;
 });
 
-// Register my own player when joining
-socket.on('room_history', () => {
-  // myPlayer will be set via player_positions/player_joined
-  // Ensure self is in map after join
-  setTimeout(() => {
-    if (!game.players.has(socket.id)) {
-      game.players.set(socket.id, {
-        id: socket.id, username: myUsername,
-        x: 800, y: 560,
-        dir: 'down', frame: 0, speech: null, typing: false
-      });
-      game.myId = socket.id;
-    }
-  }, 200);
-});
 
 // ── Typing ──
 function updateTypingDisplay() {
