@@ -92,15 +92,14 @@ function getAvatarColor(name) {
   return `linear-gradient(135deg, ${c1}, ${c2})`;
 }
 
-function renderMessage(msg, isHistory = false) {
+function buildMessageEl(msg) {
   if (msg.type === 'system') {
     const div = document.createElement('div');
     div.className = 'msg-system';
     div.innerHTML = `<span class="msg-system-text">${escapeHtml(msg.text)}</span>`;
-    messagesArea.appendChild(div);
     lastMsgUser = null;
     lastMsgTime = 0;
-    return;
+    return div;
   }
 
   const isMine = msg.username === myUsername;
@@ -134,8 +133,15 @@ function renderMessage(msg, isHistory = false) {
 
   lastMsgUser = msg.username;
   lastMsgTime = now;
+  return div;
+}
 
-  messagesArea.appendChild(div);
+function renderMessage(msg) {
+  messagesArea.appendChild(buildMessageEl(msg));
+}
+
+function renderMessageTo(container, msg) {
+  container.appendChild(buildMessageEl(msg));
 }
 
 function scrollToBottom(force = false) {
@@ -169,7 +175,9 @@ socket.on('message', (msg) => {
 
 socket.on('room_history', (messages) => {
   clearMessages();
-  messages.forEach(m => renderMessage(m, true));
+  const fragment = document.createDocumentFragment();
+  messages.forEach(m => renderMessageTo(fragment, m));
+  messagesArea.appendChild(fragment);
   scrollToBottom(true);
 });
 
