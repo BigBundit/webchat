@@ -8,43 +8,534 @@ let isTyping = false;
 let typingUsers = new Set();
 let lastMsgUser = null;
 let lastMsgTime = 0;
-const GROUP_THRESHOLD = 60000; // 60 sec
+const GROUP_THRESHOLD = 60000;
+let chatPanelOpen = false;
+let unreadCount = 0;
 
 // ── DOM refs ──
-const loginScreen   = document.getElementById('login-screen');
-const chatScreen    = document.getElementById('chat-screen');
-const loginForm     = document.getElementById('login-form');
-const usernameInput = document.getElementById('username-input');
-const messagesArea  = document.getElementById('messages-area');
-const messageInput  = document.getElementById('message-input');
-const sendBtn       = document.getElementById('send-btn');
-const charCount     = document.getElementById('char-count');
+const loginScreen    = document.getElementById('login-screen');
+const chatScreen     = document.getElementById('chat-screen');
+const loginForm      = document.getElementById('login-form');
+const usernameInput  = document.getElementById('username-input');
+const messagesArea   = document.getElementById('messages-area');
+const messageInput   = document.getElementById('message-input');
+const sendBtn        = document.getElementById('send-btn');
+const charCount      = document.getElementById('char-count');
 const typingIndicator = document.getElementById('typing-indicator');
-const typingText    = document.getElementById('typing-text');
-const userList      = document.getElementById('user-list');
-const userCount     = document.getElementById('user-count');
+const typingText     = document.getElementById('typing-text');
+const userList       = document.getElementById('user-list');
+const userCount      = document.getElementById('user-count');
 const headerUserCount = document.getElementById('header-user-count');
-const roomList      = document.getElementById('room-list');
+const roomList       = document.getElementById('room-list');
 const currentRoomName = document.getElementById('current-room-name');
-const myAvatar      = document.getElementById('my-avatar');
-const myName        = document.getElementById('my-name');
-const menuBtn       = document.getElementById('menu-btn');
-const sidebar       = document.getElementById('sidebar');
-const sidebarClose  = document.getElementById('sidebar-close');
+const myAvatar       = document.getElementById('my-avatar');
+const myName         = document.getElementById('my-name');
+const menuBtn        = document.getElementById('menu-btn');
+const sidebar        = document.getElementById('sidebar');
+const sidebarClose   = document.getElementById('sidebar-close');
 const sidebarOverlay = document.getElementById('sidebar-overlay');
-const logoutBtn     = document.getElementById('logout-btn');
+const logoutBtn      = document.getElementById('logout-btn');
+const chatToggleBtn  = document.getElementById('chat-toggle-btn');
+const chatPanel      = document.getElementById('chat-panel');
+const chatBadge      = document.getElementById('chat-badge');
 
-// Room name map
 const roomNames = { general: 'ทั่วไป', tech: 'เทคโนโลยี', random: 'สุ่ม' };
+
+// ═══════════════════════════════════════════
+// GAME ENGINE
+// ═══════════════════════════════════════════
+
+const canvas = document.getElementById('game-canvas');
+const ctx = canvas.getContext('2d');
+ctx.imageSmoothingEnabled = false;
+
+const TILE = 32;
+const MAP_W = 50;
+const MAP_H = 36;
+const CHAR_SPEED = 2.8;
+const MOVE_THROTTLE = 60;
+const SPEECH_DURATION = 4500;
+const CHAR_H = 48; // character height in world pixels
+
+// Game state
+const game = {
+  players: new Map(),   // socketId -> player object
+  myId: null,
+  map: null,
+  keys: new Set(),
+  lastMoveEmit: 0,
+  tick: 0,
+};
+
+// ── Seeded RNG ──
+function seededRng(seed) {
+  let h = 2166136261;
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+    h = h >>> 0;
+  }
+  return () => {
+    h ^= h << 13; h ^= h >>> 17; h ^= h << 5;
+    h = h >>> 0;
+    return h / 0xffffffff;
+  };
+}
+
+// ── Map generation ──
+// 0=grass, 1=dark grass, 2=tree, 3=flower, 4=water, 5=path
+function generateMap(room) {
+  const rng = seededRng(room + '_map');
+  const map = [];
+  for (let y = 0; y < MAP_H; y++) {
+    map[y] = [];
+    for (let x = 0; x < MAP_W; x++) {
+      if (x <= 1 || y <= 1 || x >= MAP_W - 2 || y >= MAP_H - 2) {
+        map[y][x] = 2;
+      } else {
+        const r = rng();
+        if      (r < 0.12) map[y][x] = 2;
+        else if (r < 0.18) map[y][x] = 3;
+        else if (r < 0.30) map[y][x] = 1;
+        else               map[y][x] = 0;
+      }
+    }
+  }
+  // Cross path
+  const midY = Math.floor(MAP_H / 2);
+  const midX = Math.floor(MAP_W / 2);
+  for (let x = 2; x < MAP_W - 2; x++) {
+    map[midY][x] = 5; map[midY + 1][x] = 5;
+  }
+  for (let y = 2; y < MAP_H - 2; y++) {
+    map[y][midX] = 5; map[y][midX + 1] = 5;
+  }
+  // Small pond
+  const pRng = seededRng(room + '_pond');
+  const px = 6 + Math.floor(pRng() * 10);
+  const py = 4 + Math.floor(pRng() * 8);
+  for (let dy = 0; dy < 3; dy++) for (let dx = 0; dx < 4; dx++) map[py + dy][px + dx] = 4;
+  return map;
+}
+
+function isSolid(x, y) {
+  const tx = Math.floor(x / TILE);
+  const ty = Math.floor(y / TILE);
+  if (!game.map || !game.map[ty] || game.map[ty][tx] === undefined) return true;
+  return game.map[ty][tx] === 2;
+}
+
+// ── Tile drawing ──
+function drawTile(type, px, py) {
+  const T = TILE;
+
+  // Grass base
+  ctx.fillStyle = type === 1 ? '#3d9910' : '#4aad18';
+  ctx.fillRect(px, py, T, T);
+
+  if (type === 2) {
+    // Shadow
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    ctx.fillRect(px + 5, py + 22, T - 6, 10);
+    // Trunk
+    ctx.fillStyle = '#6b3a10';
+    ctx.fillRect(px + 12, py + 20, 8, 12);
+    // Leaves layers
+    ctx.fillStyle = '#185a08';
+    ctx.fillRect(px + 3, py + 2, T - 6, 22);
+    ctx.fillStyle = '#228010';
+    ctx.fillRect(px + 6, py + 4, T - 12, 16);
+    ctx.fillStyle = '#32a018';
+    ctx.fillRect(px + 9, py + 6, 12, 9);
+    ctx.fillStyle = '#48c028';
+    ctx.fillRect(px + 11, py + 7, 6, 5);
+  } else if (type === 3) {
+    const fc = ['#ff6b6b','#ffd93d','#ff9ff3','#74ebd5','#a29bfe'][(px * 3 + py * 7) % 5];
+    ctx.fillStyle = fc;
+    ctx.fillRect(px + 4, py + 7, 4, 4);
+    ctx.fillRect(px + 18, py + 15, 4, 4);
+    ctx.fillRect(px + 24, py + 8, 3, 3);
+    ctx.fillStyle = '#fff9c4';
+    ctx.fillRect(px + 5, py + 8, 2, 2);
+    ctx.fillRect(px + 19, py + 16, 2, 2);
+  } else if (type === 4) {
+    // Water
+    ctx.fillStyle = '#2a8bd1';
+    ctx.fillRect(px, py, T, T);
+    const wave = Math.floor(game.tick / 25) % 2;
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.fillRect(px + wave * 6, py + 10, 14, 2);
+    ctx.fillRect(px + 16 - wave * 6, py + 22, 10, 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.1)';
+    ctx.fillRect(px + 2, py + 16, 20, 1);
+  } else if (type === 5) {
+    // Path / dirt
+    ctx.fillStyle = '#c4a050';
+    ctx.fillRect(px, py, T, T);
+    ctx.fillStyle = '#b09040';
+    ctx.fillRect(px + 1, py + 1, T - 2, 2);
+    ctx.fillRect(px + 1, py + T - 3, T - 2, 2);
+    const pr = seededRng(`${px},${py}`);
+    ctx.fillStyle = '#9a7a30';
+    for (let i = 0; i < 3; i++) {
+      ctx.fillRect(px + 2 + Math.floor(pr() * 28), py + 5 + Math.floor(pr() * 22), 2, 2);
+    }
+  } else {
+    // Grass detail
+    ctx.fillStyle = 'rgba(0,0,0,0.04)';
+    ctx.fillRect(px, py + T - 4, T, 4);
+  }
+}
+
+// ── Character color ──
+function charColor(username) {
+  const palette = ['#e74c3c','#e67e22','#f39c12','#27ae60','#16a085','#2980b9','#8e44ad','#e91e63','#ff5722','#00bcd4','#8bc34a','#ff9800'];
+  let h = 0;
+  for (let c of username) h = (h * 31 + c.charCodeAt(0)) & 0xff;
+  return palette[h % palette.length];
+}
+
+// ── Draw 8-bit character ──
+function drawCharacter(cx, cy, username, dir, frame, isMe) {
+  const s = 3;
+  const color = charColor(username);
+  const darkColor = shadeColor(color, -35);
+
+  ctx.save();
+  ctx.translate(Math.round(cx), Math.round(cy));
+  if (dir === 'left') ctx.scale(-1, 1);
+
+  const walkFrame = Math.floor(frame) % 4;
+  const step = walkFrame === 1 || walkFrame === 3 ? s : 0;
+  const legL = walkFrame === 1 ? s * 2 : 0;
+  const legR = walkFrame === 3 ? s * 2 : 0;
+
+  // Shadow
+  ctx.fillStyle = 'rgba(0,0,0,0.22)';
+  ctx.beginPath();
+  ctx.ellipse(0, 0, 10, 3, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  // Shoes
+  ctx.fillStyle = '#111';
+  ctx.fillRect(-4 * s, -1 * s + legL, 3 * s, s);
+  ctx.fillRect(1 * s, -1 * s + legR, 3 * s, s);
+
+  // Legs
+  ctx.fillStyle = '#1e3a78';
+  ctx.fillRect(-4 * s, -4 * s, 3 * s, 3 * s + legL);
+  ctx.fillRect(1 * s, -4 * s, 3 * s, 3 * s + legR);
+  ctx.fillStyle = '#2b5296';
+  ctx.fillRect(-4 * s, -5 * s, 3 * s, s);
+  ctx.fillRect(1 * s, -5 * s, 3 * s, s);
+
+  // Body
+  ctx.fillStyle = color;
+  ctx.fillRect(-4 * s, -11 * s, 8 * s, 7 * s);
+  ctx.fillStyle = darkColor;
+  ctx.fillRect(-4 * s, -11 * s, 8 * s, s); // collar
+  ctx.fillRect(-4 * s, -5 * s, 8 * s, s);  // belt
+
+  // Arms (swing with walk)
+  const armSwing = step;
+  ctx.fillStyle = color;
+  ctx.fillRect(-6 * s, -10 * s + armSwing, 2 * s, 4 * s);
+  ctx.fillRect(4 * s, -10 * s - armSwing + s, 2 * s, 4 * s);
+
+  // Skin (hands & neck)
+  ctx.fillStyle = '#ffcc99';
+  ctx.fillRect(-6 * s, -6 * s + armSwing, 2 * s, s);
+  ctx.fillRect(4 * s, -6 * s - armSwing + s, 2 * s, s);
+  ctx.fillRect(-2 * s, -12 * s, 4 * s, 2 * s);
+
+  // Head
+  ctx.fillStyle = '#ffcc99';
+  ctx.fillRect(-4 * s, -18 * s, 8 * s, 7 * s);
+
+  // Hair
+  ctx.fillStyle = '#3a2200';
+  ctx.fillRect(-4 * s, -18 * s, 8 * s, 2 * s);
+  ctx.fillRect(-5 * s, -17 * s, 2 * s, 3 * s);
+  ctx.fillRect(3 * s, -17 * s, 2 * s, 2 * s);
+
+  // Eyes
+  if (dir !== 'up') {
+    ctx.fillStyle = '#222';
+    ctx.fillRect(-3 * s, -14 * s, s, s);
+    ctx.fillRect(2 * s, -14 * s, s, s);
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(-3 * s + 1, -14 * s, 1, 1);
+    ctx.fillRect(2 * s + 1, -14 * s, 1, 1);
+  } else {
+    ctx.fillStyle = '#222';
+    ctx.fillRect(-2 * s, -14 * s, 4 * s, s);
+  }
+
+  // Name tag
+  ctx.restore();
+  ctx.save();
+  ctx.translate(Math.round(cx), Math.round(cy));
+
+  ctx.font = 'bold 11px "Courier New", monospace';
+  ctx.textAlign = 'center';
+  const label = isMe ? `★ ${username}` : username;
+  const tw = ctx.measureText(label).width;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(-tw / 2 - 4, -CHAR_H - 16, tw + 8, 15);
+  ctx.fillStyle = isMe ? '#ffd700' : '#e8eaf6';
+  ctx.fillText(label, 0, -CHAR_H - 4);
+  ctx.textAlign = 'left';
+  ctx.restore();
+}
+
+function shadeColor(hex, pct) {
+  const num = parseInt(hex.replace('#', ''), 16);
+  const r = Math.max(0, Math.min(255, (num >> 16) + pct));
+  const g = Math.max(0, Math.min(255, ((num >> 8) & 0xff) + pct));
+  const b = Math.max(0, Math.min(255, (num & 0xff) + pct));
+  return `rgb(${r},${g},${b})`;
+}
+
+// ── Draw speech bubble ──
+function drawSpeechBubble(cx, cy, text, isTyping) {
+  const FONT_SZ = 12;
+  const PAD = 7;
+  const LINE_H = 15;
+  const MAX_W = 180;
+
+  ctx.font = `${FONT_SZ}px "Courier New", monospace`;
+  ctx.textAlign = 'left';
+
+  let lines;
+  if (isTyping) {
+    const dots = '.'.repeat((Math.floor(Date.now() / 350) % 3) + 1);
+    lines = [dots + '  '];
+  } else {
+    const words = text.split(' ');
+    lines = [];
+    let line = '';
+    for (const w of words) {
+      const test = line ? line + ' ' + w : w;
+      if (ctx.measureText(test).width > MAX_W - PAD * 2) {
+        if (line) lines.push(line);
+        line = w;
+      } else line = test;
+    }
+    if (line) lines.push(line);
+    if (lines.length > 3) lines.length = 3;
+  }
+
+  const bw = Math.min(MAX_W, Math.max(...lines.map(l => ctx.measureText(l).width)) + PAD * 2);
+  const bh = lines.length * LINE_H + PAD * 2;
+  const bx = cx - bw / 2;
+  const by = cy - CHAR_H - bh - 14;
+  const r = 6;
+
+  ctx.fillStyle = 'rgba(255,255,255,0.96)';
+  ctx.strokeStyle = '#333';
+  ctx.lineWidth = 1.5;
+
+  // Bubble path with tail
+  ctx.beginPath();
+  ctx.moveTo(bx + r, by);
+  ctx.lineTo(bx + bw - r, by);
+  ctx.quadraticCurveTo(bx + bw, by, bx + bw, by + r);
+  ctx.lineTo(bx + bw, by + bh - r);
+  ctx.quadraticCurveTo(bx + bw, by + bh, bx + bw - r, by + bh);
+  ctx.lineTo(cx + 7, by + bh);
+  ctx.lineTo(cx, by + bh + 10);
+  ctx.lineTo(cx - 7, by + bh);
+  ctx.lineTo(bx + r, by + bh);
+  ctx.quadraticCurveTo(bx, by + bh, bx, by + bh - r);
+  ctx.lineTo(bx, by + r);
+  ctx.quadraticCurveTo(bx, by, bx + r, by);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  ctx.fillStyle = '#111';
+  ctx.textBaseline = 'top';
+  lines.forEach((l, i) => ctx.fillText(l, bx + PAD, by + PAD + i * LINE_H));
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+}
+
+// ── Camera ──
+function getCamera() {
+  const me = game.players.get(game.myId);
+  if (!me) return { x: 0, y: 0 };
+  const vw = canvas.width;
+  const vh = canvas.height;
+  const camX = Math.max(0, Math.min(MAP_W * TILE - vw, me.x - vw / 2));
+  const camY = Math.max(0, Math.min(MAP_H * TILE - vh, me.y - vh / 2));
+  return { x: camX, y: camY };
+}
+
+// ── Game loop ──
+function gameLoop() {
+  game.tick++;
+  resizeCanvas();
+
+  // Movement
+  const me = game.players.get(game.myId);
+  if (me) updateMovement(me);
+
+  // Draw
+  renderWorld();
+
+  requestAnimationFrame(gameLoop);
+}
+
+function resizeCanvas() {
+  if (canvas.width !== canvas.clientWidth || canvas.height !== canvas.clientHeight) {
+    canvas.width = canvas.clientWidth || window.innerWidth;
+    canvas.height = canvas.clientHeight || window.innerHeight;
+    ctx.imageSmoothingEnabled = false;
+  }
+}
+
+function renderWorld() {
+  if (!game.map) return;
+
+  const cam = getCamera();
+  const vw = canvas.width;
+  const vh = canvas.height;
+
+  // Background
+  ctx.fillStyle = '#4aad18';
+  ctx.fillRect(0, 0, vw, vh);
+
+  // Tiles
+  const tx0 = Math.max(0, Math.floor(cam.x / TILE));
+  const tx1 = Math.min(MAP_W - 1, Math.ceil((cam.x + vw) / TILE));
+  const ty0 = Math.max(0, Math.floor(cam.y / TILE));
+  const ty1 = Math.min(MAP_H - 1, Math.ceil((cam.y + vh) / TILE));
+
+  for (let ty = ty0; ty <= ty1; ty++) {
+    for (let tx = tx0; tx <= tx1; tx++) {
+      drawTile(game.map[ty][tx], tx * TILE - cam.x, ty * TILE - cam.y);
+    }
+  }
+
+  // Sort players by Y for depth
+  const players = [...game.players.values()].sort((a, b) => a.y - b.y);
+  const now = Date.now();
+
+  for (const p of players) {
+    const sx = p.x - cam.x;
+    const sy = p.y - cam.y;
+    if (sx < -80 || sx > vw + 80 || sy < -100 || sy > vh + 20) continue;
+
+    const isMe = p.id === game.myId;
+    drawCharacter(sx, sy, p.username, p.dir, p.frame, isMe);
+
+    // Speech bubble
+    if (p.speech) {
+      const elapsed = now - p.speech.ts;
+      if (elapsed < SPEECH_DURATION) {
+        const alpha = elapsed > SPEECH_DURATION - 600
+          ? 1 - (elapsed - (SPEECH_DURATION - 600)) / 600
+          : 1;
+        ctx.globalAlpha = alpha;
+        drawSpeechBubble(sx, sy, p.speech.text, false);
+        ctx.globalAlpha = 1;
+      } else {
+        p.speech = null;
+      }
+    } else if (p.typing) {
+      drawSpeechBubble(sx, sy, '...', true);
+    }
+  }
+}
+
+// ── Movement ──
+function updateMovement(me) {
+  let dx = 0, dy = 0;
+
+  if (game.keys.has('ArrowLeft')  || game.keys.has('KeyA')) dx -= 1;
+  if (game.keys.has('ArrowRight') || game.keys.has('KeyD')) dx += 1;
+  if (game.keys.has('ArrowUp')    || game.keys.has('KeyW')) dy -= 1;
+  if (game.keys.has('ArrowDown')  || game.keys.has('KeyS')) dy += 1;
+
+  if (dx !== 0 && dy !== 0) { dx *= 0.707; dy *= 0.707; }
+
+  if (dx !== 0 || dy !== 0) {
+    if (dx < 0) me.dir = 'left';
+    else if (dx > 0) me.dir = 'right';
+    else if (dy < 0) me.dir = 'up';
+    else me.dir = 'down';
+
+    const speed = CHAR_SPEED;
+    const nx = me.x + dx * speed;
+    const ny = me.y + dy * speed;
+    const hw = 10; // half-width for collision
+    const foot = 4; // foot offset from bottom
+
+    if (!isSolid(nx - hw, me.y - foot) && !isSolid(nx + hw, me.y - foot)) {
+      me.x = Math.max(TILE * 2 + hw, Math.min(MAP_W * TILE - TILE * 2 - hw, nx));
+    }
+    if (!isSolid(me.x - hw, ny - foot) && !isSolid(me.x + hw, ny - foot)) {
+      me.y = Math.max(TILE * 2 + foot, Math.min(MAP_H * TILE - TILE * 2, ny));
+    }
+
+    me.frame = (me.frame + 0.2) % 4;
+
+    const now = Date.now();
+    if (now - game.lastMoveEmit > MOVE_THROTTLE) {
+      game.lastMoveEmit = now;
+      socket.emit('player_move', { x: me.x, y: me.y, dir: me.dir });
+    }
+  } else {
+    me.frame = 0;
+  }
+}
+
+// ── Input listeners ──
+window.addEventListener('keydown', (e) => {
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight','KeyW','KeyA','KeyS','KeyD'].includes(e.code)) {
+    // Don't capture if typing in textarea
+    if (document.activeElement === messageInput) return;
+    e.preventDefault();
+    game.keys.add(e.code);
+  }
+});
+window.addEventListener('keyup', (e) => game.keys.delete(e.code));
+
+// Mobile D-pad
+function dpadDown(dir) {
+  game.keys.add(dir);
+}
+function dpadUp(dir) {
+  game.keys.delete(dir);
+}
+
+['up','down','left','right'].forEach(d => {
+  const btn = document.getElementById(`dpad-${d}`);
+  const code = { up: 'ArrowUp', down: 'ArrowDown', left: 'ArrowLeft', right: 'ArrowRight' }[d];
+  btn.addEventListener('touchstart', (e) => { e.preventDefault(); dpadDown(code); }, { passive: false });
+  btn.addEventListener('touchend',   (e) => { e.preventDefault(); dpadUp(code); }, { passive: false });
+  btn.addEventListener('mousedown',  () => dpadDown(code));
+  btn.addEventListener('mouseup',    () => dpadUp(code));
+  btn.addEventListener('mouseleave', () => dpadUp(code));
+});
+
+// ── Start game ──
+function startGame(room) {
+  game.map = generateMap(room);
+  resizeCanvas();
+  requestAnimationFrame(gameLoop);
+}
+
+// ═══════════════════════════════════════════
+// CHAT LOGIC
+// ═══════════════════════════════════════════
 
 // ── Login ──
 loginForm.addEventListener('submit', (e) => {
   e.preventDefault();
   const username = usernameInput.value.trim();
-  if (!username) {
-    usernameInput.focus();
-    return;
-  }
+  if (!username) { usernameInput.focus(); return; }
+
   const roomInput = loginForm.querySelector('input[name="room"]:checked');
   const room = roomInput ? roomInput.value : 'general';
 
@@ -59,10 +550,16 @@ loginForm.addEventListener('submit', (e) => {
   myAvatar.textContent = username.charAt(0).toUpperCase();
   myName.textContent = username;
 
-  setTimeout(() => messageInput.focus(), 200);
+  const sidebarAv = document.getElementById('sidebar-avatar');
+  const sidebarNm = document.getElementById('sidebar-name');
+  if (sidebarAv) sidebarAv.textContent = username.charAt(0).toUpperCase();
+  if (sidebarNm) sidebarNm.textContent = username;
+
+  startGame(room);
+
+  setTimeout(() => messageInput.focus(), 300);
 });
 
-// Room option UI
 document.querySelectorAll('.room-option').forEach(opt => {
   opt.addEventListener('click', () => {
     document.querySelectorAll('.room-option').forEach(o => o.classList.remove('active'));
@@ -70,26 +567,20 @@ document.querySelectorAll('.room-option').forEach(opt => {
   });
 });
 
-// ── Messages ──
+// ── Chat Panel Toggle ──
+chatToggleBtn.addEventListener('click', () => {
+  chatPanelOpen = !chatPanelOpen;
+  chatPanel.classList.toggle('hidden', !chatPanelOpen);
+  if (chatPanelOpen) {
+    unreadCount = 0;
+    chatBadge.style.display = 'none';
+    scrollToBottom(true);
+  }
+});
+
+// ── Message Rendering ──
 function formatTime(ts) {
   return new Date(ts).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
-}
-
-function getAvatarColor(name) {
-  const colors = [
-    ['#667eea', '#764ba2'],
-    ['#f093fb', '#f5576c'],
-    ['#4facfe', '#00f2fe'],
-    ['#43e97b', '#38f9d7'],
-    ['#fa709a', '#fee140'],
-    ['#a18cd1', '#fbc2eb'],
-    ['#ffecd2', '#fcb69f'],
-    ['#96fbc4', '#f9f586'],
-  ];
-  let hash = 0;
-  for (let c of name) hash = (hash + c.charCodeAt(0)) & 0xff;
-  const [c1, c2] = colors[hash % colors.length];
-  return `linear-gradient(135deg, ${c1}, ${c2})`;
 }
 
 function buildMessageEl(msg) {
@@ -97,42 +588,33 @@ function buildMessageEl(msg) {
     const div = document.createElement('div');
     div.className = 'msg-system';
     div.innerHTML = `<span class="msg-system-text">${escapeHtml(msg.text)}</span>`;
-    lastMsgUser = null;
-    lastMsgTime = 0;
+    lastMsgUser = null; lastMsgTime = 0;
     return div;
   }
 
   const isMine = msg.username === myUsername;
-  const now = msg.timestamp;
-  const grouped = (msg.username === lastMsgUser) && ((now - lastMsgTime) < GROUP_THRESHOLD);
-
+  const grouped = (msg.username === lastMsgUser) && ((msg.timestamp - lastMsgTime) < GROUP_THRESHOLD);
   const div = document.createElement('div');
   div.className = `msg ${isMine ? 'mine' : 'theirs'}${grouped ? ' grouped' : ''}`;
-  div.dataset.id = msg.id || '';
-
-  const avatarStyle = isMine ? '' : `style="background:${getAvatarColor(msg.username)}"`;
 
   if (!isMine) {
     div.innerHTML = `
       <div class="msg-header">
-        <div class="avatar" ${avatarStyle}>${escapeHtml(msg.username.charAt(0).toUpperCase())}</div>
         <span class="msg-username">${escapeHtml(msg.username)}</span>
-        <span class="msg-time">${formatTime(now)}</span>
+        <span class="msg-time">${formatTime(msg.timestamp)}</span>
       </div>
-      <div class="msg-bubble">${escapeHtml(msg.text)}</div>
-    `;
+      <div class="msg-bubble">${escapeHtml(msg.text)}</div>`;
   } else {
     div.innerHTML = `
       <div class="msg-header">
-        <span class="msg-time">${formatTime(now)}</span>
+        <span class="msg-time">${formatTime(msg.timestamp)}</span>
         <span class="msg-username">คุณ</span>
       </div>
-      <div class="msg-bubble">${escapeHtml(msg.text)}</div>
-    `;
+      <div class="msg-bubble">${escapeHtml(msg.text)}</div>`;
   }
 
   lastMsgUser = msg.username;
-  lastMsgTime = now;
+  lastMsgTime = msg.timestamp;
   return div;
 }
 
@@ -140,16 +622,10 @@ function renderMessage(msg) {
   messagesArea.appendChild(buildMessageEl(msg));
 }
 
-function renderMessageTo(container, msg) {
-  container.appendChild(buildMessageEl(msg));
-}
-
 function scrollToBottom(force = false) {
   const el = messagesArea;
-  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 120;
-  if (force || nearBottom) {
-    el.scrollTop = el.scrollHeight;
-  }
+  const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+  if (force || nearBottom) el.scrollTop = el.scrollHeight;
 }
 
 function clearMessages() {
@@ -160,23 +636,33 @@ function clearMessages() {
           <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
         </svg>
       </div>
-      <p>ยินดีต้อนรับสู่ห้องแชท เริ่มต้นการสนทนาได้เลย!</p>
-    </div>
-  `;
-  lastMsgUser = null;
-  lastMsgTime = 0;
+      <p>เริ่มต้นการสนทนาได้เลย!</p>
+    </div>`;
+  lastMsgUser = null; lastMsgTime = 0;
 }
 
 // ── Socket events ──
+socket.on('connect', () => {
+  game.myId = socket.id;
+  if (myUsername && chatScreen.classList.contains('active')) {
+    socket.emit('join', { username: myUsername, room: currentRoom });
+  }
+});
+
 socket.on('message', (msg) => {
   renderMessage(msg);
-  scrollToBottom();
+  if (chatPanelOpen) scrollToBottom();
+  else if (msg.type === 'chat') {
+    unreadCount++;
+    chatBadge.style.display = 'flex';
+    chatBadge.textContent = unreadCount > 9 ? '9+' : unreadCount;
+  }
 });
 
 socket.on('room_history', (messages) => {
   clearMessages();
   const fragment = document.createDocumentFragment();
-  messages.forEach(m => renderMessageTo(fragment, m));
+  messages.forEach(m => fragment.appendChild(buildMessageEl(m)));
   messagesArea.appendChild(fragment);
   scrollToBottom(true);
 });
@@ -186,12 +672,11 @@ socket.on('room_users', (users) => {
   headerUserCount.textContent = users.length;
   userList.innerHTML = users.map(u => `
     <div class="user-item ${u === myUsername ? 'me' : ''}">
-      <div class="avatar" style="background:${getAvatarColor(u)};width:28px;height:28px;font-size:12px">
+      <div class="avatar" style="background:${charColor(u)};width:28px;height:28px;font-size:12px">
         ${escapeHtml(u.charAt(0).toUpperCase())}
       </div>
       <span>${escapeHtml(u)}${u === myUsername ? ' (คุณ)' : ''}</span>
-    </div>
-  `).join('');
+    </div>`).join('');
 });
 
 socket.on('rooms_info', (rooms) => {
@@ -200,8 +685,7 @@ socket.on('rooms_info', (rooms) => {
       <span class="room-item-hash">#</span>
       <span>${escapeHtml(r.name)}</span>
       <span class="room-item-count">${r.count}</span>
-    </div>
-  `).join('');
+    </div>`).join('');
 
   document.querySelectorAll('.room-item').forEach(item => {
     item.addEventListener('click', () => {
@@ -217,27 +701,70 @@ socket.on('room_changed', (room) => {
   currentRoomName.textContent = roomNames[room] || room;
   typingUsers.clear();
   updateTypingDisplay();
+  game.map = generateMap(room);
+  game.players.clear();
+  game.myId = socket.id;
 });
 
-socket.on('user_typing', ({ username, isTyping }) => {
+socket.on('user_typing', ({ username, isTyping: it }) => {
   if (username === myUsername) return;
-  if (isTyping) {
-    typingUsers.add(username);
-  } else {
-    typingUsers.delete(username);
-  }
+  if (it) typingUsers.add(username); else typingUsers.delete(username);
   updateTypingDisplay();
 });
 
-socket.on('disconnect', () => {
-  console.log('Disconnected from server');
+// ── Player events ──
+socket.on('player_positions', (positions) => {
+  game.myId = socket.id;
+  for (const p of positions) {
+    game.players.set(p.id, { id: p.id, username: p.username, x: p.x, y: p.y, dir: p.dir || 'down', frame: 0, speech: null, typing: false });
+  }
 });
 
-socket.on('connect', () => {
-  // If already in chat (reconnect), re-join
-  if (myUsername && chatScreen.classList.contains('active')) {
-    socket.emit('join', { username: myUsername, room: currentRoom });
+socket.on('player_joined', ({ id, username, x, y, dir }) => {
+  if (id === socket.id) return;
+  game.players.set(id, { id, username, x, y, dir: dir || 'down', frame: 0, speech: null, typing: false });
+});
+
+socket.on('player_moved', ({ id, x, y, dir }) => {
+  const p = game.players.get(id);
+  if (!p) return;
+  p.x = x; p.y = y; p.dir = dir;
+  p.frame = (p.frame + 0.2) % 4;
+});
+
+socket.on('player_left', ({ id }) => {
+  game.players.delete(id);
+});
+
+socket.on('player_speech', ({ id, text }) => {
+  const p = game.players.get(id);
+  if (p) p.speech = { text, ts: Date.now() };
+  // Also set for my own player
+  if (id === socket.id) {
+    const me = game.players.get(game.myId);
+    if (me) me.speech = { text, ts: Date.now() };
   }
+});
+
+socket.on('player_typing', ({ id, isTyping: it }) => {
+  const p = game.players.get(id);
+  if (p) p.typing = it;
+});
+
+// Register my own player when joining
+socket.on('room_history', () => {
+  // myPlayer will be set via player_positions/player_joined
+  // Ensure self is in map after join
+  setTimeout(() => {
+    if (!game.players.has(socket.id)) {
+      game.players.set(socket.id, {
+        id: socket.id, username: myUsername,
+        x: 800, y: 560,
+        dir: 'down', frame: 0, speech: null, typing: false
+      });
+      game.myId = socket.id;
+    }
+  }, 200);
 });
 
 // ── Typing ──
@@ -246,10 +773,7 @@ function updateTypingDisplay() {
     typingIndicator.style.display = 'none';
   } else {
     typingIndicator.style.display = 'flex';
-    const names = Array.from(typingUsers).join(', ');
-    typingText.textContent = typingUsers.size === 1
-      ? `${names} กำลังพิมพ์...`
-      : `${names} กำลังพิมพ์...`;
+    typingText.textContent = `${Array.from(typingUsers).join(', ')} กำลังพิมพ์...`;
   }
 }
 
@@ -258,27 +782,26 @@ messageInput.addEventListener('input', () => {
   charCount.textContent = `${val.length}/500`;
   sendBtn.disabled = !val.trim();
 
-  // Auto-resize
   messageInput.style.height = 'auto';
-  messageInput.style.height = Math.min(messageInput.scrollHeight, 140) + 'px';
+  messageInput.style.height = Math.min(messageInput.scrollHeight, 100) + 'px';
 
-  // Typing events
   if (!isTyping) {
     isTyping = true;
     socket.emit('typing', { room: currentRoom, isTyping: true });
+    const me = game.players.get(game.myId);
+    if (me) me.typing = true;
   }
   clearTimeout(typingTimer);
   typingTimer = setTimeout(() => {
     isTyping = false;
     socket.emit('typing', { room: currentRoom, isTyping: false });
+    const me = game.players.get(game.myId);
+    if (me) me.typing = false;
   }, 2000);
 });
 
 messageInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
-  }
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
 });
 
 sendBtn.addEventListener('click', sendMessage);
@@ -289,18 +812,21 @@ function sendMessage() {
 
   socket.emit('chat_message', { text, room: currentRoom });
 
+  // Show speech bubble on own character immediately
+  const me = game.players.get(game.myId);
+  if (me) me.speech = { text, ts: Date.now() };
+
   messageInput.value = '';
   messageInput.style.height = 'auto';
   charCount.textContent = '0/500';
   sendBtn.disabled = true;
 
-  // Stop typing
   clearTimeout(typingTimer);
   if (isTyping) {
     isTyping = false;
     socket.emit('typing', { room: currentRoom, isTyping: false });
+    if (me) me.typing = false;
   }
-
   messageInput.focus();
 }
 
@@ -308,7 +834,7 @@ function switchRoom(room) {
   socket.emit('switch_room', room);
 }
 
-// ── Sidebar toggle ──
+// ── Sidebar ──
 menuBtn.addEventListener('click', () => {
   sidebar.classList.add('open');
   sidebarOverlay.classList.add('open');
@@ -327,8 +853,13 @@ logoutBtn.addEventListener('click', () => {
   chatScreen.classList.remove('active');
   loginScreen.classList.add('active');
   clearMessages();
+  game.players.clear();
   myUsername = '';
   currentRoom = 'general';
+  chatPanelOpen = false;
+  chatPanel.classList.add('hidden');
+  unreadCount = 0;
+  chatBadge.style.display = 'none';
   socket.disconnect();
   socket.connect();
   usernameInput.value = '';
@@ -337,10 +868,7 @@ logoutBtn.addEventListener('click', () => {
 
 // ── Helpers ──
 function escapeHtml(str) {
-  return str
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#039;');
+  return String(str)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;');
 }

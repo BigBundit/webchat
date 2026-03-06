@@ -23,12 +23,10 @@
             <circle cx="16" cy="30" r="2" fill="white"/>
             <defs>
               <linearGradient id="grad" x1="0" y1="0" x2="40" y2="40" gradientUnits="userSpaceOnUse">
-                <stop stop-color="#667eea"/>
-                <stop offset="1" stop-color="#764ba2"/>
+                <stop stop-color="#667eea"/><stop offset="1" stop-color="#764ba2"/>
               </linearGradient>
               <linearGradient id="grad2" x1="10" y1="14" x2="30" y2="14" gradientUnits="userSpaceOnUse">
-                <stop stop-color="#667eea"/>
-                <stop offset="1" stop-color="#764ba2"/>
+                <stop stop-color="#667eea"/><stop offset="1" stop-color="#764ba2"/>
               </linearGradient>
             </defs>
           </svg>
@@ -47,13 +45,7 @@
                 <circle cx="12" cy="7" r="4"/>
               </svg>
             </span>
-            <input
-              type="text"
-              id="username-input"
-              placeholder="กรอกชื่อของคุณ..."
-              maxlength="20"
-              autocomplete="off"
-            />
+            <input type="text" id="username-input" placeholder="กรอกชื่อของคุณ..." maxlength="20" autocomplete="off" />
           </div>
         </div>
 
@@ -90,6 +82,32 @@
 
   <!-- Chat Screen -->
   <div id="chat-screen" class="screen">
+
+    <!-- Game World Canvas -->
+    <canvas id="game-canvas"></canvas>
+
+    <!-- Top overlay bar -->
+    <div class="game-topbar">
+      <button class="menu-btn" id="menu-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 12h18M3 6h18M3 18h18"/>
+        </svg>
+      </button>
+      <div class="room-badge">
+        <span class="room-hash">#</span>
+        <span id="current-room-name">ทั่วไป</span>
+      </div>
+      <div class="online-badge">
+        <span class="pulse"></span>
+        <span id="header-user-count">0</span> ออนไลน์
+      </div>
+      <div class="controls-hint">WASD / ↑↓←→ เดิน</div>
+      <div class="my-info">
+        <div class="avatar" id="my-avatar">?</div>
+        <span class="me-name" id="my-name">-</span>
+      </div>
+    </div>
+
     <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
@@ -106,22 +124,18 @@
 
       <div class="sidebar-section">
         <h3 class="sidebar-label">ห้องแชท</h3>
-        <div id="room-list" class="room-list">
-          <!-- Rooms injected by JS -->
-        </div>
+        <div id="room-list" class="room-list"></div>
       </div>
 
       <div class="sidebar-section">
         <h3 class="sidebar-label">ผู้ใช้ในห้อง (<span id="user-count">0</span>)</h3>
-        <div id="user-list" class="user-list">
-          <!-- Users injected by JS -->
-        </div>
+        <div id="user-list" class="user-list"></div>
       </div>
 
       <div class="sidebar-footer">
         <div class="me-info">
-          <div class="avatar" id="my-avatar">?</div>
-          <div class="me-name" id="my-name">-</div>
+          <div class="avatar" id="sidebar-avatar">?</div>
+          <div class="me-name" id="sidebar-name">-</div>
         </div>
         <button class="btn-logout" id="logout-btn" title="ออกจากห้อง">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -131,68 +145,60 @@
       </div>
     </aside>
 
-    <!-- Overlay for mobile -->
     <div class="sidebar-overlay" id="sidebar-overlay"></div>
 
-    <!-- Main chat area -->
-    <main class="chat-main">
-      <!-- Chat header -->
-      <header class="chat-header">
-        <button class="menu-btn" id="menu-btn">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M3 12h18M3 6h18M3 18h18"/>
-          </svg>
-        </button>
-        <div class="chat-header-info">
-          <span class="room-hash">#</span>
-          <h2 id="current-room-name">ทั่วไป</h2>
-        </div>
-        <div class="online-badge">
-          <span class="pulse"></span>
-          <span id="header-user-count">0</span> ออนไลน์
-        </div>
-      </header>
+    <!-- Chat toggle button -->
+    <button class="chat-toggle-btn" id="chat-toggle-btn" title="เปิด/ปิดแชท">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/>
+      </svg>
+      <span class="chat-badge" id="chat-badge" style="display:none">!</span>
+    </button>
 
-      <!-- Messages area -->
-      <div class="messages-area" id="messages-area">
-        <div class="welcome-msg">
-          <div class="welcome-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
-            </svg>
-          </div>
-          <p>ยินดีต้อนรับสู่ห้องแชท เริ่มต้นการสนทนาได้เลย!</p>
-        </div>
-      </div>
-
-      <!-- Typing indicator -->
+    <!-- Chat panel (floating) -->
+    <div class="chat-panel hidden" id="chat-panel">
+      <div class="messages-area" id="messages-area"></div>
       <div class="typing-indicator" id="typing-indicator" style="display:none">
-        <div class="typing-dots">
-          <span></span><span></span><span></span>
-        </div>
+        <div class="typing-dots"><span></span><span></span><span></span></div>
         <span id="typing-text">กำลังพิมพ์...</span>
       </div>
+    </div>
 
-      <!-- Input area -->
-      <div class="input-area">
-        <div class="input-box">
-          <textarea
-            id="message-input"
-            placeholder="พิมพ์ข้อความ... (Enter ส่ง, Shift+Enter ขึ้นบรรทัดใหม่)"
-            rows="1"
-            maxlength="500"
-          ></textarea>
-          <div class="input-actions">
-            <span class="char-count" id="char-count">0/500</span>
-            <button class="send-btn" id="send-btn" disabled>
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
-              </svg>
-            </button>
-          </div>
+    <!-- Input area -->
+    <div class="input-area">
+      <div class="input-box">
+        <textarea
+          id="message-input"
+          placeholder="พิมพ์ข้อความ... (Enter ส่ง, Shift+Enter ขึ้นบรรทัดใหม่)"
+          rows="1"
+          maxlength="500"
+        ></textarea>
+        <div class="input-actions">
+          <span class="char-count" id="char-count">0/500</span>
+          <button class="send-btn" id="send-btn" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
+            </svg>
+          </button>
         </div>
       </div>
-    </main>
+    </div>
+
+    <!-- Mobile D-pad -->
+    <div class="dpad" id="dpad">
+      <div class="dpad-row">
+        <button class="dpad-btn" id="dpad-up">▲</button>
+      </div>
+      <div class="dpad-row">
+        <button class="dpad-btn" id="dpad-left">◀</button>
+        <div class="dpad-center"></div>
+        <button class="dpad-btn" id="dpad-right">▶</button>
+      </div>
+      <div class="dpad-row">
+        <button class="dpad-btn" id="dpad-down">▼</button>
+      </div>
+    </div>
+
   </div>
 
   <script src="/socket.io/socket.io.js"></script>
